@@ -6,7 +6,7 @@ RUN pip install pandas
 
 WORKDIR /app 
 
-COPY pipeline.py pipeline.py
+# COPY pipeline.py pipeline.py
 # COPY ingest_data.py ingest_data.py
 
 ENTRYPOINT ["bash"]
