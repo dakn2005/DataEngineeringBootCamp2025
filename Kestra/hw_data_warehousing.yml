@@ -1,11 +1,8 @@
-# does not work in uploading while the script works -_o_-; why, only kestra developers know
-# Also kestra seems unstable per pull-run i.e. logs were not human readable, download, upload failure, aggressive 
-# caching despite editing a flow
+
 id: hw_data_warehousing
 namespace: zoomcamp
 description: |
-  Best to add a label `backfill:true` from the UI to track executions created via a backfill.
-  CSV data used here comes from: https://github.com/DataTalksClub/nyc-tlc-data/releases
+  data warehousing exercise parquet data used here comes from: https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
 
 inputs:
   - id: taxi
@@ -15,10 +12,10 @@ inputs:
     defaults: green
 
 variables:
-  file: "{{inputs.taxi}}_tripdata_{{trigger.date | date('yyyy-MM')}}.csv"
-  gcs_file: "gs://{{kv('GCP_BUCKET_NAME')}}/{{vars.file}}"
-  table: "{{kv('GCP_DATASET')}}.{{inputs.taxi}}_tripdata_{{trigger.date | date('yyyy_MM')}}"
-  data: "{{outputs.extract.outputFiles[inputs.taxi ~ '_tripdata_' ~ (trigger.date | date('yyyy-MM')) ~ '.csv']}}"
+  file: "{{inputs.taxi}}_tripdata_{{trigger.date | date('yyyy-MM')}}.parquet"
+  gcs_file: "gs://{{kv('GCP_BUCKET_NAME_3')}}/{{vars.file}}"
+  # table: "{{kv('GCP_DATASET')}}.{{inputs.taxi}}_tripdata_{{trigger.date | date('yyyy_MM')}}"
+  data: "{{outputs.extract.outputFiles[inputs.taxi ~ '_tripdata_' ~ (trigger.date | date('yyyy-MM')) ~ '.parquet']}}"
 
 tasks:
   - id: set_label
@@ -30,11 +27,12 @@ tasks:
   - id: extract
     type: io.kestra.plugin.scripts.shell.Commands
     outputFiles:
-      - "*.csv"
+      - "*.parquet"
     taskRunner:
       type: io.kestra.plugin.core.runner.Process
     commands:
-      - wget -qO- https://github.com/DataTalksClub/nyc-tlc-data/releases/download/{{inputs.taxi}}/{{render(vars.file)}}.gz | gunzip > {{render(vars.file)}}
+      - wget -q https://d37ci6vzurychx.cloudfront.net/trip-data/{{render(vars.file)}}
+      # - wget -qO- https://github.com/DataTalksClub/nyc-tlc-data/releases/download/{{inputs.taxi}}/{{render(vars.file)}}.gz | gunzip > {{render(vars.file)}}
 
   - id: upload_to_gcs
     type: io.kestra.plugin.gcp.gcs.Upload
@@ -51,7 +49,7 @@ pluginDefaults:
       serviceAccount: "{{kv('GCP_CREDS')}}"
       projectId: "{{kv('GCP_PROJECT_ID')}}"
       location: "{{kv('GCP_LOCATION')}}"
-      bucket: "{{kv('GCP_BUCKET_NAME_2')}}"
+      bucket: "{{kv('GCP_BUCKET_NAME_3')}}"
 
 triggers:
   - id: green_schedule
