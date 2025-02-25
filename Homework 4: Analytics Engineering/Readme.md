@@ -97,7 +97,7 @@ and fct2.service_type = sdt.service_type
 Ans: green: {best: 2020/Q1, worst: 2020/Q2}, yellow: {best: 2020/Q1, worst: 2020/Q2}
 
 ### Question 6: P97/P95/P90 Taxi Monthly Fare
-Ans: green: {p97: 28.0, p95: 23.0, p90: 18.0}, yellow: {p97: 32, p95: 26, p90: 19.5}
+Ans: green: {p97: 55.0, p95: 45.0, p90: 26.5}, yellow: {p97: 31.5, p95: 25.5, p90: 19.0}
 
 <code>
 -- stg_fct_taxi_trips_monthly_fare_p95
