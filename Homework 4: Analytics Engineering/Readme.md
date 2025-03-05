@@ -1,3 +1,5 @@
+> Setup
+
 <code>
 CREATE OR REPLACE EXTERNAL TABLE `marine-base-449315-s5.zoomcamp_dbt.external_yellow_tripdata_2019_2020`
 OPTIONS (
@@ -6,6 +8,7 @@ OPTIONS (
           'gs://marine-base-449315-s5-kestra-bucket/yellow_tripdata_2020-*.csv'
         ]
 );
+
 
 CREATE OR REPLACE EXTERNAL TABLE `marine-base-449315-s5.zoomcamp_dbt.external_green_tripdata_2019_2020`
 OPTIONS (
@@ -35,8 +38,10 @@ Ans:
 - When using stg, it materializes in the dataset defined in DBT_BIGQUERY_STAGING_DATASET, or defaults to DBT_BIGQUERY_TARGET_DATASET
 - When using staging, it materializes in the dataset defined in DBT_BIGQUERY_STAGING_DATASET, or defaults DBT_BIGQUERY_TARGET_DATASET
 
+### Question 5: Question 5: Taxi Quarterly Revenue Growth
 <code>
-{% macro get_quarter(themonth) -%}
+{% macro get_quarter(themonth) %}
+
     case 
         when {{themonth}} between 1 and 3 then 'Q1'
         when {{themonth}} between 4 and 6 then 'Q2'
@@ -46,11 +51,166 @@ Ans:
 
 {%- endmacro %}
 
+-- stg_quarterly_revenue
+
 select 
+    service_type,
+    total_amount,
+    {{ get_quarter(dbt_date.date_part('month', 'pickup_datetime')) }} ||
+        '/' || {{ dbt_date.date_part('year', 'pickup_datetime') }} as qtrs
+from {{ ref('fact_trips') }}
+
+-- fct_taxi_trips_quarterly_revenue
+
+select 
+    service_type,
+    qtrs quarter,
+    sum(total_amount) revenue
+from {{ ref('stg_quarterly_revenue') }}
+group by service_type, qtrs
+order by 1, 2
+</code>
+
+**Calculate YoY**
+
+<code>
+with splitted_dt as (
+  select 
     *,
-    {{ get_quarter(dbt_date.date_part('month', 'revenue_month')) }} ||
-        '/' || {{ dbt_date.date_part('year', 'revenue_month') }} as qtrs
-from {{ ref('dm_monthly_zone_revenue') }}
+    split(quarter, '/')[offset(0)] as qtr,
+    split(quarter, '/')[1] as yr,
+  from `zoomcamp_dbt.fct_taxi_trips_quarterly_revenue`
+) 
+select 
+  sdt.service_type,
+  sdt.quarter,
+  qtr ||'/'|| (cast(yr as int64) - 1) prevq,
+  sdt.revenue curr_rev,
+  fct2.revenue prev_rev,
+  SAFE_DIVIDE(sdt.revenue - fct2.revenue, fct2.revenue) * 100 AS yoy_growth_percentage
+from splitted_dt sdt
+left join `zoomcamp_dbt.fct_taxi_trips_quarterly_revenue` fct2 
+on fct2.quarter =  sdt.qtr ||'/'|| (cast(sdt.yr as int64) - 1)
+and fct2.service_type = sdt.service_type
+</code>
+
+Ans: green: {best: 2020/Q1, worst: 2020/Q2}, yellow: {best: 2020/Q1, worst: 2020/Q2}
+
+### Question 6: P97/P95/P90 Taxi Monthly Fare
+Ans: green: {p97: 55.0, p95: 45.0, p90: 26.5}, yellow: {p97: 31.5, p95: 25.5, p90: 19.0}
+
+<code>
+-- stg_fct_taxi_trips_monthly_fare_p95
+
+select 
+    service_type,
+ {{ dbt_date.date_part('year', 'pickup_datetime') }} year,
+ {{ dbt_date.date_part('month', 'pickup_datetime') }} month,
+ fare_amount
+from {{ ref('fact_trips') }}
+where fare_amount > 0 
+and trip_distance > 0
+and payment_type_description in ('Cash', 'Credit Card')
+
+-- fct_taxi_trips_monthly_fare_p95
+
+SELECT 
+    service_type, 
+    year, 
+    month, 
+    PERCENTILE_CONT(fare_amount, 0.97) OVER (
+        PARTITION BY service_type, year, month 
+    ) AS percentile_97,
+    PERCENTILE_CONT(fare_amount, 0.95) OVER (
+        PARTITION BY service_type, year, month 
+    ) AS percentile_95, -- Median
+    PERCENTILE_CONT(fare_amount, 0.90) OVER (
+        PARTITION BY service_type, year, month 
+    ) AS percentile_90
+FROM {{ ref('stg_fct_taxi_trips_monthly_fare_p95') }}
+
+-- result query
+select 
+  service_type,
+  year,
+  month,
+  avg(percentile_97),
+  avg(percentile_95),
+  avg(percentile_90)
+from `zoomcamp_dbt.fct_taxi_trips_monthly_fare_p95`
+where year = 2020 
+and month = 4
+group by service_type, year, month
+</code>
+
+### Question 7: Top #Nth longest P90 travel time Location for FHV
+Ans: LaGuardia Airport, Chinatown, Garment District
+
+<code>
+-- dim_fhv_trips
+
+{{
+    config(
+        materialized='table'
+    )
+}}
+
+with dim_zones as (
+    select * from {{ ref('dim_zones') }}
+    where borough != 'Unknown'
+),
+staged_fhv as (
+    select * from {{ ref('stg_fhv') }}
+)
+select 
+    staged_fhv.*,
+    {{ dbt_date.date_part('year', 'pickup_datetime') }} year,
+    {{ dbt_date.date_part('month', 'pickup_datetime') }} month,
+    pickup_zone.borough as pickup_borough, 
+    pickup_zone.zone as pickup_zone, 
+    dropoff_zone.borough as dropoff_borough, 
+    dropoff_zone.zone as dropoff_zone,  
+from 
+staged_fhv
+inner join dim_zones as pickup_zone on staged_fhv.pulocationid = pickup_zone.locationid
+inner join dim_zones as dropoff_zone on staged_fhv.dolocationid = dropoff_zone.locationid
+
+-- fct_fhv_monthly_zone_traveltime_p90
+
+with
+    t1 as (
+        select
+            *,
+            timestamp_diff(
+                timestamp(dropoff_datetime), timestamp(pickup_datetime), second
+            ) trip_duration
+        from {{ ref("dim_fhv_trips") }}
+    )
+select
+    year,
+    month, 
+    pickup_zone, 
+    dropoff_zone,  
+    percentile_cont(trip_duration, 0.90) over (
+        partition by year, month, pulocationid, dolocationid
+    ) as percentile_90
+from t1
 
 
+-- result query
+
+with calcs as (
+  select 
+    pickup_zone,
+    dropoff_zone,
+    avg(percentile_90) p90
+  from `zoomcamp_dbt.fct_fhv_monthly_zone_traveltime_p90`
+  where pickup_zone = 'Yorkville East'
+  and month = 11
+  and year = 2019
+  group by pickup_zone, dropoff_zone
+)
+select * from calcs 
+order by pickup_zone, p90 desc
+;
 </code>
