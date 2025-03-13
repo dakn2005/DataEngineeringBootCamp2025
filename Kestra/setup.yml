@@ -13,6 +13,18 @@ tasks:
     storageClass: REGIONAL
     name: "{{kv('GCP_BUCKET_NAME_2')}}" # make sure it's globally unique!
     ifExists: SKIP
+
+  - id: create_gcs_bucket_3
+    type: io.kestra.plugin.gcp.gcs.CreateBucket
+    storageClass: REGIONAL
+    name: "{{kv('GCP_BUCKET_NAME_3')}}" # make sure it's globally unique!
+    ifExists: SKIP
+
+  - id: create_gcs_bucket_4
+    type: io.kestra.plugin.gcp.gcs.CreateBucket
+    storageClass: REGIONAL
+    name: "{{kv('GCP_BUCKET_NAME_4')}}" # make sure it's globally unique!
+    ifExists: SKIP
     
   - id: create_bq_dataset
     type: io.kestra.plugin.gcp.bigquery.CreateDataset
